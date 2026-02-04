@@ -50,7 +50,8 @@ A desktop and mobile UI for [Claude Code](https://docs.anthropic.com/en/docs/cla
 - **Git Explorer** - View, stage and commit your changes. You can also switch branches 
 - **Session Management** - Resume conversations, manage multiple sessions, and track history
 - **TaskMaster AI Integration** *(Optional)* - Advanced project management with AI-powered task planning, PRD parsing, and workflow automation
-- **Model Compatibility** - Works with Claude Sonnet 4.5, Opus 4.5, and GPT-5.2 
+- **Model Compatibility** - Works with Claude Sonnet 4.5, Opus 4.5, and GPT-5.2
+- **Multi-Account Support** - Configure multiple Claude accounts with different `CLAUDE_CONFIG_DIR` paths, switch between them from the UI
 
 
 ## Quick Start
@@ -217,6 +218,52 @@ It provides
 **Setup & Documentation**: Visit the [TaskMaster AI GitHub repository](https://github.com/eyaltoledano/claude-task-master) for installation instructions, configuration guides, and usage examples.
 After installing it you should be able to enable it from the Settings
 
+
+## Multi-Account Support
+
+Claude Code UI supports multiple Claude accounts, each with its own configuration directory (`CLAUDE_CONFIG_DIR`). This is useful when you have separate Claude subscriptions for work, personal use, or different teams.
+
+### Setting Up Accounts
+
+1. Go to **Settings** > **Claude** > **Accounts** tab
+2. Click **Add Account** and provide:
+   - **Account Name** — A label (e.g., `Work`, `Personal`)
+   - **Config Directory** — The `CLAUDE_CONFIG_DIR` path (e.g., `/home/user/.claude-work`)
+3. A **Default** account pointing to `~/.claude` is created automatically on first use
+
+### Authenticating Each Account
+
+Each account requires its own Claude authentication. You can log in from the **Account** tab:
+
+1. Go to **Settings** > **Claude** > **Account** tab
+2. Select the account from the dropdown
+3. Click **Login** — the terminal will run with the correct `CLAUDE_CONFIG_DIR`
+
+Or authenticate manually from a terminal:
+
+```bash
+# Authenticate the "Work" account
+CLAUDE_CONFIG_DIR=/home/user/.claude-work claude
+
+# Authenticate the "Personal" account
+CLAUDE_CONFIG_DIR=/home/user/.claude-personal claude
+```
+
+### Switching Accounts in Chat
+
+When you have more than one account, an **Account** dropdown appears in the chat area (next to the model selector). Select the desired account before sending a message — the server will use that account's configuration and credentials for the query.
+
+### How It Works
+
+```
+Account selector (UI)
+  → WebSocket message includes accountId
+  → Server resolves accountId → configDir (from database)
+  → Sets CLAUDE_CONFIG_DIR before SDK query
+  → MCP servers are loaded from the account's config directory
+```
+
+Each account is stored in the database (`claude_accounts` table) and managed via the `/api/accounts` REST API.
 
 ## Usage Guide
 

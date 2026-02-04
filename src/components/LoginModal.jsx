@@ -25,24 +25,37 @@ function LoginModal({
 }) {
   if (!isOpen) return null;
 
+  const configDir = provider === 'claude' ? localStorage.getItem('claude-login-config-dir') : null;
+
   const getCommand = () => {
     if (customCommand) return customCommand;
 
     switch (provider) {
-      case 'claude':
-        return isAuthenticated ? 'claude setup-token --dangerously-skip-permissions' : 'claude /exit --dangerously-skip-permissions';
+      case 'claude': {
+        // 'claude' interactive triggers OAuth if not authenticated
+        // 'claude setup-token' for re-auth with long-lived token
+        const baseCmd = isAuthenticated ? 'claude setup-token' : 'claude';
+        if (configDir) {
+          return `export CLAUDE_CONFIG_DIR=${configDir} && ${baseCmd}`;
+        }
+        return baseCmd;
+      }
       case 'cursor':
         return 'cursor-agent login';
       case 'codex':
         return IS_PLATFORM ? 'codex login --device-auth' : 'codex login';
       default:
-        return isAuthenticated ? 'claude setup-token --dangerously-skip-permissions' : 'claude /exit --dangerously-skip-permissions';
+        return isAuthenticated ? 'claude setup-token' : 'claude';
     }
   };
 
   const getTitle = () => {
     switch (provider) {
       case 'claude':
+        if (configDir) {
+          const dirName = configDir.split('/').pop();
+          return `Claude CLI Login (${dirName})`;
+        }
         return 'Claude CLI Login';
       case 'cursor':
         return 'Cursor CLI Login';
@@ -54,6 +67,8 @@ function LoginModal({
   };
 
   const handleComplete = (exitCode) => {
+    // Clean up the config dir marker
+    localStorage.removeItem('claude-login-config-dir');
     if (onComplete) {
       onComplete(exitCode);
     }

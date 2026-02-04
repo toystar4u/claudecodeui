@@ -405,16 +405,25 @@ async function cleanupTempFiles(tempImagePaths, tempDir) {
  * @param {string} cwd - Current working directory for project-specific configs
  * @returns {Object|null} MCP servers object or null if none found
  */
-async function loadMcpConfig(cwd) {
+async function loadMcpConfig(cwd, configDir) {
   try {
-    const claudeConfigPath = path.join(os.homedir(), '.claude.json');
+    const baseDir = configDir || os.homedir();
+    // Look for .claude.json in the config dir itself, then in its parent
+    let claudeConfigPath = path.join(baseDir, '.claude.json');
+    try {
+      await fs.access(claudeConfigPath);
+    } catch {
+      // Try parent directory (e.g., if configDir is ~/.claude, check ~/)
+      const parentDir = path.dirname(baseDir);
+      claudeConfigPath = path.join(parentDir, '.claude.json');
+    }
 
     // Check if config file exists
     try {
       await fs.access(claudeConfigPath);
     } catch (error) {
       // File doesn't exist, return null
-      console.log('No ~/.claude.json found, proceeding without MCP servers');
+      console.log(`No .claude.json found in ${baseDir}, proceeding without MCP servers`);
       return null;
     }
 
@@ -468,7 +477,7 @@ async function loadMcpConfig(cwd) {
  * @returns {Promise<void>}
  */
 async function queryClaudeSDK(command, options = {}, ws) {
-  const { sessionId } = options;
+  const { sessionId, configDir } = options;
   let capturedSessionId = sessionId;
   let sessionCreatedSent = false;
   let tempImagePaths = [];
@@ -478,8 +487,15 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // Map CLI options to SDK format
     const sdkOptions = mapCliOptionsToSDK(options);
 
+    // Set CLAUDE_CONFIG_DIR for this query if a specific account config dir is provided
+    const previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    if (configDir) {
+      process.env.CLAUDE_CONFIG_DIR = configDir;
+      console.log(`Using CLAUDE_CONFIG_DIR: ${configDir}`);
+    }
+
     // Load MCP configuration
-    const mcpServers = await loadMcpConfig(options.cwd);
+    const mcpServers = await loadMcpConfig(options.cwd, configDir);
     if (mcpServers) {
       sdkOptions.mcpServers = mcpServers;
     }
@@ -565,6 +581,15 @@ async function queryClaudeSDK(command, options = {}, ws) {
       prompt: finalCommand,
       options: sdkOptions
     });
+
+    // Restore CLAUDE_CONFIG_DIR after SDK reads config at init
+    if (configDir) {
+      if (previousConfigDir !== undefined) {
+        process.env.CLAUDE_CONFIG_DIR = previousConfigDir;
+      } else {
+        delete process.env.CLAUDE_CONFIG_DIR;
+      }
+    }
 
     // Track the query instance for abort capability
     if (capturedSessionId) {

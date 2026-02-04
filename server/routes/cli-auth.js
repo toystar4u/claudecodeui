@@ -8,7 +8,8 @@ const router = express.Router();
 
 router.get('/claude/status', async (req, res) => {
   try {
-    const credentialsResult = await checkClaudeCredentials();
+    const configDir = req.query.configDir || null;
+    const credentialsResult = await checkClaudeCredentials(configDir);
 
     if (credentialsResult.authenticated) {
       return res.json({
@@ -74,9 +75,10 @@ router.get('/codex/status', async (req, res) => {
   }
 });
 
-async function checkClaudeCredentials() {
+async function checkClaudeCredentials(configDir = null) {
   try {
-    const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
+    const baseDir = configDir || path.join(os.homedir(), '.claude');
+    const credPath = path.join(baseDir, '.credentials.json');
     const content = await fs.readFile(credPath, 'utf8');
     const creds = JSON.parse(content);
 

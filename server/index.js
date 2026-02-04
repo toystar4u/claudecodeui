@@ -59,7 +59,8 @@ import projectsRoutes, { WORKSPACES_ROOT, validateWorkspacePath } from './routes
 import cliAuthRoutes from './routes/cli-auth.js';
 import userRoutes from './routes/user.js';
 import codexRoutes from './routes/codex.js';
-import { initializeDatabase } from './database/db.js';
+import accountRoutes from './routes/accounts.js';
+import { initializeDatabase, accountsDb } from './database/db.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
 
@@ -280,6 +281,9 @@ app.use('/api/user', authenticateToken, userRoutes);
 
 // Codex API Routes (protected)
 app.use('/api/codex', authenticateToken, codexRoutes);
+
+// Claude Accounts API Routes (protected)
+app.use('/api/accounts', authenticateToken, accountRoutes);
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
@@ -843,8 +847,18 @@ function handleChatConnection(ws) {
                 console.log('📁 Project:', data.options?.projectPath || 'Unknown');
                 console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
 
+                // Resolve accountId to configDir for multi-account support
+                let configDir = null;
+                if (data.options?.accountId) {
+                  const account = accountsDb.getAccount(data.options.accountId);
+                  if (account) {
+                    configDir = account.config_dir;
+                    console.log(`🔑 Account: ${account.name} (${configDir})`);
+                  }
+                }
+
                 // Use Claude Agents SDK
-                await queryClaudeSDK(data.command, data.options, writer);
+                await queryClaudeSDK(data.command, { ...data.options, configDir }, writer);
             } else if (data.type === 'cursor-command') {
                 console.log('[DEBUG] Cursor message:', data.command || '[Continue/Resume]');
                 console.log('📁 Project:', data.options?.cwd || 'Unknown');

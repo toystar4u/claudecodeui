@@ -17,6 +17,7 @@ import { authenticatedFetch } from '../utils/api';
 // New settings components
 import AgentListItem from './settings/AgentListItem';
 import AccountContent from './settings/AccountContent';
+import AccountsContent from './settings/AccountsContent';
 import PermissionsContent from './settings/PermissionsContent';
 import McpServersContent from './settings/McpServersContent';
 import LanguageSelector from './LanguageSelector';
@@ -123,6 +124,13 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }) {
     email: null,
     loading: true,
     error: null
+  });
+
+  // Multi-account support
+  const [claudeAccounts, setClaudeAccounts] = useState([]);
+  const [settingsSelectedAccountId, setSettingsSelectedAccountId] = useState(() => {
+    const saved = localStorage.getItem('claude-selected-account');
+    return saved ? parseInt(saved) : null;
   });
 
   // Common tool patterns for Claude
@@ -494,10 +502,36 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }) {
     }
   };
 
+  const fetchClaudeAccounts = async () => {
+    try {
+      const response = await authenticatedFetch('/api/accounts');
+      if (response.ok) {
+        const data = await response.json();
+        const accounts = data.accounts || [];
+        setClaudeAccounts(accounts);
+        let selectedId = settingsSelectedAccountId;
+        if (!selectedId && accounts.length > 0) {
+          const defaultAccount = accounts.find(a => a.is_default) || accounts[0];
+          selectedId = defaultAccount.id;
+          setSettingsSelectedAccountId(selectedId);
+          localStorage.setItem('claude-selected-account', selectedId.toString());
+        }
+        return { accounts, selectedId };
+      }
+    } catch (error) {
+      console.error('Error fetching Claude accounts:', error);
+    }
+    return { accounts: [], selectedId: null };
+  };
+
   useEffect(() => {
     if (isOpen) {
       loadSettings();
-      checkClaudeAuthStatus();
+      fetchClaudeAccounts().then(({ accounts, selectedId }) => {
+        // Pass configDir directly since state may not be updated yet
+        const account = accounts.find(a => a.id === selectedId);
+        checkClaudeAuthStatus(null, account?.config_dir);
+      });
       checkCursorAuthStatus();
       checkCodexAuthStatus();
       setActiveTab(initialTab);
@@ -592,9 +626,17 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }) {
     }
   };
 
-  const checkClaudeAuthStatus = async () => {
+  const checkClaudeAuthStatus = async (accountId, explicitConfigDir) => {
     try {
-      const response = await authenticatedFetch('/api/cli/claude/status');
+      // Resolve configDir from accounts or use explicit value
+      let configDir = explicitConfigDir || '';
+      if (!configDir) {
+        const targetId = accountId || settingsSelectedAccountId;
+        const account = claudeAccounts.find(a => a.id === targetId);
+        configDir = account?.config_dir || '';
+      }
+      const queryParam = configDir ? `?configDir=${encodeURIComponent(configDir)}` : '';
+      const response = await authenticatedFetch(`/api/cli/claude/status${queryParam}`);
 
       if (response.ok) {
         const data = await response.json();
@@ -688,6 +730,11 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }) {
   const handleClaudeLogin = () => {
     setLoginProvider('claude');
     setSelectedProject(projects?.[0] || { name: 'default', fullPath: process.cwd() });
+    // Store selected account's configDir for login command
+    const account = claudeAccounts.find(a => a.id === settingsSelectedAccountId);
+    if (account) {
+      localStorage.setItem('claude-login-config-dir', account.config_dir);
+    }
     setShowLoginModal(true);
   };
 
@@ -1343,6 +1390,18 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }) {
                       >
                         {t('tabs.mcpServers')}
                       </button>
+                      {selectedAgent === 'claude' && (
+                        <button
+                          onClick={() => setSelectedCategory('accounts')}
+                          className={`px-3 md:px-4 py-2 md:py-3 text-xs md:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                            selectedCategory === 'accounts'
+                              ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                              : 'border-transparent text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          Accounts
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -1362,6 +1421,14 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }) {
                           selectedAgent === 'cursor' ? handleCursorLogin :
                           handleCodexLogin
                         }
+                        accounts={selectedAgent === 'claude' ? claudeAccounts : []}
+                        selectedAccountId={settingsSelectedAccountId}
+                        onAccountChange={(newId) => {
+                          setSettingsSelectedAccountId(newId);
+                          localStorage.setItem('claude-selected-account', newId.toString());
+                          // Re-check auth status for the newly selected account
+                          checkClaudeAuthStatus(newId);
+                        }}
                       />
                     )}
 
@@ -1440,6 +1507,11 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }) {
                         onEdit={(server) => openCodexMcpForm(server)}
                         onDelete={(serverId) => handleCodexMcpDelete(serverId)}
                       />
+                    )}
+
+                    {/* Accounts Category - Claude only */}
+                    {selectedCategory === 'accounts' && selectedAgent === 'claude' && (
+                      <AccountsContent />
                     )}
                   </div>
                 </div>

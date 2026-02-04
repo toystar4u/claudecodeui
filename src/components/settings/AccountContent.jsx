@@ -39,10 +39,12 @@ const agentConfig = {
   },
 };
 
-export default function AccountContent({ agent, authStatus, onLogin }) {
+export default function AccountContent({ agent, authStatus, onLogin, accounts, selectedAccountId, onAccountChange }) {
   const { t } = useTranslation('settings');
   const config = agentConfig[agent];
   const { Logo } = config;
+
+  const selectedAccount = accounts?.find(a => a.id === selectedAccountId);
 
   return (
     <div className="space-y-6">
@@ -54,6 +56,36 @@ export default function AccountContent({ agent, authStatus, onLogin }) {
         </div>
       </div>
 
+      {/* Account Selector - Claude only, when multiple accounts exist */}
+      {agent === 'claude' && accounts && accounts.length > 1 && (
+        <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-medium text-foreground text-sm">Active Account</div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Select which account to check status and login
+              </div>
+            </div>
+            <select
+              value={selectedAccountId || ''}
+              onChange={(e) => onAccountChange?.(parseInt(e.target.value))}
+              className="pl-3 pr-8 py-1.5 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}{account.is_default ? ' (default)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          {selectedAccount && (
+            <div className="mt-2 text-xs text-muted-foreground">
+              Config: <code className="px-1 py-0.5 bg-gray-200 dark:bg-gray-700 rounded">{selectedAccount.config_dir}</code>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className={`${config.bgClass} border ${config.borderClass} rounded-lg p-4`}>
         <div className="space-y-4">
           {/* Connection Status */}
@@ -61,6 +93,9 @@ export default function AccountContent({ agent, authStatus, onLogin }) {
             <div className="flex-1">
               <div className={`font-medium ${config.textClass}`}>
                 {t('agents.connectionStatus')}
+                {agent === 'claude' && selectedAccount && accounts?.length > 1 && (
+                  <span className="ml-2 text-xs font-normal opacity-75">({selectedAccount.name})</span>
+                )}
               </div>
               <div className={`text-sm ${config.subtextClass}`}>
                 {authStatus?.loading ? (

@@ -1947,6 +1947,12 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, late
   const [codexModel, setCodexModel] = useState(() => {
     return localStorage.getItem('codex-model') || CODEX_MODELS.DEFAULT;
   });
+  // Multi-account support
+  const [claudeAccounts, setClaudeAccounts] = useState([]);
+  const [selectedAccountId, setSelectedAccountId] = useState(() => {
+    const saved = localStorage.getItem('claude-selected-account');
+    return saved ? parseInt(saved) : null;
+  });
   // Track provider transitions so we only clear approvals when provider truly changes.
   // This does not sync with the backend; it just prevents UI prompts from disappearing.
   const lastProviderRef = useRef(provider);
@@ -1958,6 +1964,28 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, late
     }
     streamBufferRef.current = '';
   }, []);
+  // Fetch Claude accounts for multi-account support
+  useEffect(() => {
+    const fetchAccounts = async () => {
+      try {
+        const response = await authenticatedFetch('/api/accounts');
+        if (response.ok) {
+          const data = await response.json();
+          setClaudeAccounts(data.accounts || []);
+          // If no account selected, select the default one
+          if (!selectedAccountId && data.accounts?.length > 0) {
+            const defaultAccount = data.accounts.find(a => a.is_default) || data.accounts[0];
+            setSelectedAccountId(defaultAccount.id);
+            localStorage.setItem('claude-selected-account', defaultAccount.id.toString());
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching Claude accounts:', error);
+      }
+    };
+    fetchAccounts();
+  }, []);
+
   // Load permission mode for the current session
   useEffect(() => {
     if (selectedSession?.id) {
@@ -4552,7 +4580,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, late
           toolsSettings: toolsSettings,
           permissionMode: permissionMode,
           model: claudeModel,
-          images: uploadedImages // Pass images to backend
+          images: uploadedImages, // Pass images to backend
+          accountId: selectedAccountId // Multi-account support
         }
       });
     }
@@ -5106,7 +5135,31 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, late
                     </select>
                   )}
                 </div>
-                
+
+                {/* Account Selection - Only for Claude provider with multiple accounts */}
+                {provider === 'claude' && claudeAccounts.length > 1 && (
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Account
+                    </label>
+                    <select
+                      value={selectedAccountId || ''}
+                      onChange={(e) => {
+                        const newId = parseInt(e.target.value);
+                        setSelectedAccountId(newId);
+                        localStorage.setItem('claude-selected-account', newId.toString());
+                      }}
+                      className="pl-4 pr-10 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[140px]"
+                    >
+                      {claudeAccounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name}{account.is_default ? ' (default)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   {provider === 'claude'
                     ? t('providerSelection.readyPrompt.claude', { model: claudeModel })

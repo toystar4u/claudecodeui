@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -332,6 +333,119 @@ const credentialsDb = {
   }
 };
 
+// Claude accounts database operations (multi-account support)
+const accountsDb = {
+  // Create a new account
+  createAccount: (userId, name, configDir, isDefault = false) => {
+    try {
+      // If setting as default, unset others first
+      if (isDefault) {
+        db.prepare('UPDATE claude_accounts SET is_default = 0 WHERE user_id = ?').run(userId);
+      }
+      const stmt = db.prepare('INSERT INTO claude_accounts (user_id, name, config_dir, is_default) VALUES (?, ?, ?, ?)');
+      const result = stmt.run(userId, name, configDir, isDefault ? 1 : 0);
+      return { id: result.lastInsertRowid, name, config_dir: configDir, is_default: isDefault ? 1 : 0 };
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get all accounts for a user
+  getAccounts: (userId) => {
+    try {
+      const rows = db.prepare('SELECT id, user_id, name, config_dir, is_default, created_at FROM claude_accounts WHERE user_id = ? ORDER BY is_default DESC, created_at ASC').all(userId);
+      return rows;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get a single account by ID
+  getAccount: (accountId) => {
+    try {
+      const row = db.prepare('SELECT id, user_id, name, config_dir, is_default, created_at FROM claude_accounts WHERE id = ?').get(accountId);
+      return row;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Get the default account for a user
+  getDefaultAccount: (userId) => {
+    try {
+      const row = db.prepare('SELECT id, user_id, name, config_dir, is_default, created_at FROM claude_accounts WHERE user_id = ? AND is_default = 1').get(userId);
+      return row;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Update an account
+  updateAccount: (accountId, name, configDir) => {
+    try {
+      const stmt = db.prepare('UPDATE claude_accounts SET name = ?, config_dir = ? WHERE id = ?');
+      const result = stmt.run(name, configDir, accountId);
+      return result.changes > 0;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Set an account as default (unsets others)
+  setDefaultAccount: (userId, accountId) => {
+    try {
+      db.prepare('UPDATE claude_accounts SET is_default = 0 WHERE user_id = ?').run(userId);
+      const stmt = db.prepare('UPDATE claude_accounts SET is_default = 1 WHERE id = ? AND user_id = ?');
+      const result = stmt.run(accountId, userId);
+      return result.changes > 0;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Delete an account (prevents deleting the last one)
+  deleteAccount: (userId, accountId) => {
+    try {
+      const count = db.prepare('SELECT COUNT(*) as count FROM claude_accounts WHERE user_id = ?').get(userId);
+      if (count.count <= 1) {
+        return { success: false, error: 'Cannot delete the last account' };
+      }
+      // Check if deleting default account
+      const account = db.prepare('SELECT is_default FROM claude_accounts WHERE id = ? AND user_id = ?').get(accountId, userId);
+      if (!account) {
+        return { success: false, error: 'Account not found' };
+      }
+      const stmt = db.prepare('DELETE FROM claude_accounts WHERE id = ? AND user_id = ?');
+      const result = stmt.run(accountId, userId);
+      // If deleted the default, set another as default
+      if (account.is_default && result.changes > 0) {
+        const first = db.prepare('SELECT id FROM claude_accounts WHERE user_id = ? LIMIT 1').get(userId);
+        if (first) {
+          db.prepare('UPDATE claude_accounts SET is_default = 1 WHERE id = ?').run(first.id);
+        }
+      }
+      return { success: result.changes > 0 };
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Ensure a user has at least one account (auto-seed)
+  ensureDefaultAccount: (userId) => {
+    try {
+      const count = db.prepare('SELECT COUNT(*) as count FROM claude_accounts WHERE user_id = ?').get(userId);
+      if (count.count === 0) {
+        const homeDir = os.homedir();
+        const defaultConfigDir = path.join(homeDir, '.claude');
+        accountsDb.createAccount(userId, 'Default', defaultConfigDir, true);
+        console.log(`Auto-seeded default Claude account for user ${userId}`);
+      }
+    } catch (err) {
+      console.error('Error ensuring default account:', err.message);
+    }
+  }
+};
+
 // Backward compatibility - keep old names pointing to new system
 const githubTokensDb = {
   createGithubToken: (userId, tokenName, githubToken, description = null) => {
@@ -357,5 +471,6 @@ export {
   userDb,
   apiKeysDb,
   credentialsDb,
+  accountsDb,
   githubTokensDb // Backward compatibility
 };
