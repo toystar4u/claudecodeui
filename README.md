@@ -219,9 +219,12 @@ It provides
 After installing it you should be able to enable it from the Settings
 
 
-## Multi-Account Support
+## Multi-Account Support (NEW)
 
 Claude Code UI supports multiple Claude accounts, each with its own configuration directory (`CLAUDE_CONFIG_DIR`). This is useful when you have separate Claude subscriptions for work, personal use, or different teams.
+
+
+![alt text](image.png)
 
 ### Setting Up Accounts
 
